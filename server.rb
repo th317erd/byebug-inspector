@@ -1,13 +1,21 @@
 require 'em-websocket'
 require 'json'
+require 'digest'
 
 require_relative 'outputStream'
+require_relative 'interfaces/debugger'
+require_relative 'interfaces/runtime'
 
 class InterfaceServer
   def initialize(address, port)
+    $DEBUGGER_EXTRA_FILES = []
+
     @mutex = Mutex.new
     @sendQue = []
     @recvQue = []
+
+    @debugger = DebuggerInterface.new()
+    @runtime = RuntimeInterface.new()
 
     t = Thread.new do
       EM.run {
@@ -32,7 +40,8 @@ class InterfaceServer
             sid = @channel.subscribe { |msg| ws.send msg }
 
             ws.send('{"method":"Runtime.executionContextCreated","params":{"context":{"id":1,"origin":"","name":"Ruby Main Context"}}}');
-            
+            sendProjectFileList(ws);
+
             ws.onclose {
               @channel.unsubscribe(sid)
             }
@@ -40,10 +49,7 @@ class InterfaceServer
             ws.onmessage { |msg|
               begin
                 obj = JSON.parse(msg)
-
-                mutex.synchronize {
-                  recvQue.push(obj);
-                }
+                runCommand(obj);
               rescue
                 #puts "Error parsing: #{msg}"
               end
@@ -65,6 +71,50 @@ class InterfaceServer
     @mutex.synchronize {
       @sendQue.push(data)
     }
+  end
+
+  def runCommand(obj)
+    method = obj["method"];
+
+    unless method.nil? || method.empty?
+      prefix = ""
+      method = method.sub(/^(\w+)\./) { |m|
+        prefix = $1
+        next ""
+      }
+
+      if method.nil? || method.empty?
+        return
+      end
+
+      d = nil
+
+      if prefix == "Debugger"
+        d = @debugger.run(method, obj)
+      elsif prefix == "Runtime"
+        d = @runtime.run(method, obj)
+      end
+
+      unless d.nil? || d.empty?
+        send(JSON.generate(d))
+      end
+    end
+  end
+
+  def sendProjectFileList(ws)
+    allFiles = $LOADED_FEATURES + $DEBUGGER_EXTRA_FILES;
+    allFiles.each do |name|
+      if name =~ /\.rb$/
+        path = File.expand_path(name)
+        d = @debugger.scriptParsed({ :path => path })
+
+        if d.nil? || d.empty?
+          next
+        end
+
+        send(JSON.generate(d))
+      end
+    end
   end
 
   def remoteCall(ns, method, *args)

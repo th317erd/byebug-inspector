@@ -11,6 +11,8 @@ class Main < InterfaceServer
 		}
 
 		super('localhost', '8080');
+
+		$DEBUGGER_EXTRA_FILES.push(__FILE__)
 	end
 
 	def notify(data, msg)
