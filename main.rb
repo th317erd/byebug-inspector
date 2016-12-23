@@ -1,18 +1,31 @@
+require 'json'
 require_relative 'server'
 
+$oldSTDOUT = $stdout;
+def log(*args)
+	$oldSTDOUT.write(*args.join(' ') + "\n")
+end 
+
 class Main < InterfaceServer
-	def initialize()
-		$oldSTDOUT = $stdout;
+	def initialize(opts = {})
+		host = ENV.fetch("BYEBUG_INTERFACE_SERVER_ADDRESS", opts[:host]).to_s
+    port = ENV.fetch("BYEBUG_INTERFACE_SERVER_PORT", opts[:port]).to_i
 
 		$stdout = OutputStream.new() { |data|
 			unless (data =~ /^\n$/)
-				remoteCall("Runtime.consoleAPICalled", "log", data);
+				runCommand({
+					"method" => "Runtime.consoleAPICalled",
+					"args" => [data]
+				});
 			end
 		}
 
-		super('localhost', '8080');
-
-		$DEBUGGER_EXTRA_FILES.push(__FILE__)
+		$DEBUGGER_EXTRA_FILES = [__FILE__]
+		
+		super({
+			:host => host,
+			:port => port
+		});
 	end
 
 	def notify(data, msg)
