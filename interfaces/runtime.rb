@@ -7,6 +7,14 @@ class RuntimeInterface < InterfaceBase
 		remoteCall("Runtime.consoleAPICalled", "log", *args);
 	end
 
+	def enable(params)
+		sendResult(params)
+	end
+
+	def runIfWaitingForDebugger(params)
+		sendResult(params)
+	end
+
 	def remoteCall(ns, method, *args)
     a = []
     args.each do |arg|
@@ -31,10 +39,13 @@ class RuntimeInterface < InterfaceBase
     end
 
     p = {
+    	"type" => method,
       "args" => a,
       "executionContextId" => 1,
       "timestamp" => Time.now.to_f,
-      "type" => method
+      "stackTrace" => {
+      	"callFrames" => []
+      }
     };
 
     return {

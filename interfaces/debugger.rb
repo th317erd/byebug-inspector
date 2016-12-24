@@ -2,10 +2,13 @@ require_relative 'interface'
 require_relative '../plugins/byebug'
 
 class DebuggerInterface < InterfaceBase
-	def initialize(opts)
+	def initialize(server, opts)
 		super(opts)
 
-		@debuggerPlugin = ByebugPlugin.new(opts)
+		p = ByebugPlugin.new()
+		p.init(server)
+		@debuggerPlugin = p
+
 		@scripts = {}
 
 		loadProjectFileList()
@@ -72,6 +75,22 @@ class DebuggerInterface < InterfaceBase
   	end
   end
 
+  def enable(params)
+  	sendResult(params)
+  end
+
+  def setPauseOnExceptions(params)
+  	sendResult(params)
+  end
+
+  def setAsyncCallStackDepth(params)
+  	sendResult(params)
+  end
+
+  def setBlackboxPatterns(params)
+  	sendResult(params)
+  end
+
 	def scriptParsed(script)
     return {
       :method => "Debugger.scriptParsed",
@@ -91,31 +110,40 @@ class DebuggerInterface < InterfaceBase
     }
   end
 
-  def getScriptSource(opts)
-  	reqID = opts['id']
-  	params = opts['params']
-  	scriptID = params['scriptId']
+  def getScriptSource(params)
+  	p = params['params']
+  	scriptID = p['scriptId']
 
   	if @scripts.key?(scriptID)
   		s = @scripts[scriptID]
 
-  		return {
-  			:id => reqID,
-  			:result => {
-  				:scriptSource => s[:source]
-  			}
-  		}
+  		return sendResult(params, {
+				:scriptSource => s[:source]
+			})
   	end
   end
 
-  def setBreakpointByUrl(opts)
+  def setBreakpointByUrl(params)
   	log "Set breakpoint"
-  	params = opts["params"]
+  	params = params["params"]
   	file = params["url"]
-  	line = params["lineNumber"]
+  	line = params["lineNumber"] + 1
 
   	log "Breakpoint #{file}:#{line}"
 
   	@debuggerPlugin.sendCommand("break", [file, line].join(":"))
+  end
+
+  def paused(params)
+  	file = params["file"]
+  	line = params["line"]
+
+  	return {
+  		:method => "Debugger.paused",
+  		:params => {
+  			:hitBreakpoints => ["#{file}:#{line}:0"],
+  			:reason => "other"
+  		}
+  	}
   end
 end

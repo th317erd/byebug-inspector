@@ -33,3 +33,8 @@ class Main < InterfaceServer
 end
 
 Main.new();
+
+while true do
+	puts "HERE!"
+	sleep 5
+end

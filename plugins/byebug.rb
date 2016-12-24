@@ -1,92 +1,98 @@
 require 'byebug/core'
-require 'socket'
-include Socket::Constants
+require 'byebug/processors/control_processor'
+require_relative 'pluginInterface'
 
-class ByebugPlugin
-	def initialize(opts)
-		@sendQue = []
-		@host = opts[:host]
-		@port = ENV.fetch("BYEBUG_SERVER_PORT", opts[:port]).to_i
-		@port += 1
-
-		@mutex = Mutex.new
-
-		Byebug.start_server @host, @port
-		log "Byebug server started #{@host}:#{@port}"
+class ByebugPlugin < Byebug::ControlProcessor
+	def initialize(context = nil)
+		unless Byebug.started?
+			Byebug::start
+		end
 		
-		t = Thread.new do
-			log 'Connecting to byebug server...'
-	    
-			socket = Socket.new(AF_INET, SOCK_STREAM, 0)
-			sockaddr = Socket.sockaddr_in(@port, @host)
-			begin
-				socket.connect_nonblock(sockaddr)
-			rescue IO::WaitWritable
-				IO.select(nil, [socket])
-				begin
-					socket.connect_nonblock(sockaddr)
-				rescue Errno::EINVAL
-					retry
-				rescue Errno::EISCONN
-					log "Failed!"
-					return
-				end
-			end
-
-			log "Connected!"
-
-	    while true do
-	    	log "Looping"
-	    	# if @sendQue.size > 0
-	    	# 	log "trying Doing que"
-		    # 	@mutex.synchronize {
-		    # 		log "Doing que"
-		    # 		@sendQue.each { |item|
-		    # 			command = item[:command]
-		    # 			args = item[:args]
-
-		    # 			if !args.nil? && args.size > 0
-		    # 				a = args.join(' ')
-		    # 				log "Sending to socket: #{command} #{a}\n"
-		    # 				socket.write("#{command} #{a}\n")
-		    # 			else
-		    # 				log "Sending to socket: #{command}\n"
-		    # 				socket.write("#{command}\n")
-		    # 			end
-		    # 		}
-		    # 	}
-		    # end
-
-		    log "Read socket"
-		    begin
-	    		results = socket.read_nonblock(1024)
-	    	rescue IO::WaitReadable
-	    	end
-	    	log "Done"
-
-	    	sleep 0.5
-	    	unless results.nil? || results.empty?
-	    		log "Got from socket: " + results
-	    	end
-	    end
-
-	    socket.close
+		c = context
+		if c.nil?
+			c = Byebug.current_context
 		end
 
-		t.abort_on_exception = true
-    @t = t
-
-    at_exit {
-      t.join()
-    }
+		super(c)
 	end
 
-	def sendCommand(command, *args)
-		@mutex.synchronize {
-			@sendQue.push({
-				:command => command,
-				:args => args
-			});
+	def init(server = nil)
+		@@server = server
+
+		unless Byebug.started?
+			Byebug::start
+		end
+		
+		@interface = PluginInterface.new() { |command, args|
 		}
+
+		Byebug::Context.interface = @interface
+		Byebug::Context.processor = self.class
+	end
+
+	def at_line
+    process_commands
+  end
+
+  def at_tracing
+    log "Tracing: #{context.full_location}"
+
+    run_auto_cmds(2)
+  end
+
+  def at_breakpoint(brkpt)
+    number = Byebug.breakpoints.index(brkpt) + 1
+
+    log "DERP"
+    log "Stopped by breakpoint #{number} at #{frame.file}:#{frame.line}"
+
+    begin
+	    @@server.runCommand({
+				"method" => "Debugger.paused",
+				"file" => "#{frame.file}",
+				"line" => "#{frame.line}"
+			});
+		rescue => e
+			log "#{e}"
+		end
+  end
+
+  def at_catchpoint(exception)
+    log "Catchpoint at #{context.location}: `#{exception}'"
+  end
+
+  def at_return(return_value)
+    log "Return value is: #{safe_inspect(return_value)}"
+
+    process_commands
+  end
+
+  def at_end
+    process_commands
+  end
+
+	def sendCommand(command, *args)
+		c = nil
+
+		if !args.nil? && args.size > 0
+			a = args.join(' ')
+			c = "#{command} #{a}\n"
+		else
+			c = "#{command}\n"
+		end
+
+		begin
+			log "Running command #{c}"
+
+			if @proceed == false
+				@interface.input.write(c)
+			else
+				run_cmd(c)
+			end
+
+			log "Finished command"
+		rescue => e
+			log "#{e}"
+		end
 	end
 end
