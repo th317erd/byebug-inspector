@@ -51,7 +51,9 @@ class InterfaceServer
 
             @mutex.synchronize {
               sid = @channel.subscribe { |msg|
+                log "Sending message to client: #{msg}"
                 ws.send msg
+                log "Done sending command"
               }
             }
 

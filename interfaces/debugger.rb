@@ -141,6 +141,7 @@ class DebuggerInterface < InterfaceBase
   	return {
   		:method => "Debugger.paused",
   		:params => {
+  			:callFrames => [],
   			:hitBreakpoints => ["#{file}:#{line}:0"],
   			:reason => "other"
   		}
